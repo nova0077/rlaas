@@ -10,13 +10,11 @@ public class SlidingWindowCounterRateLimiter implements RateLimiter{
     private static class WindowData {
         long currentWindowStart;
         int currentCount;
-        long prevWindowStart;
         int prevCount;
         
         WindowData(long currentWindowStart){
             this.currentWindowStart = currentWindowStart;
             this.currentCount = 0;
-            this.prevWindowStart = currentWindowStart - 1;
             this.prevCount = 0;
         }
     }
@@ -49,14 +47,12 @@ public class SlidingWindowCounterRateLimiter implements RateLimiter{
 
         synchronized (windowData) {
             if (windowData.currentWindowStart != currentWindowStart) {
-                if(windowData.currentWindowStart == prevWindowStart) {
+                if (windowData.currentWindowStart == prevWindowStart) {
                     // current window becomes previous
-                   windowData.prevWindowStart = windowData.currentWindowStart;
-                   windowData.prevCount = windowData.currentCount; 
+                    windowData.prevCount = windowData.currentCount;
                 } else {
                     // we skipped a window, prev count is 0
-                    windowData.prevWindowStart = currentWindowStart;
-                    windowData.currentCount = 0;
+                    windowData.prevCount = 0;
                 }
                 windowData.currentWindowStart = currentWindowStart;
                 windowData.currentCount = 0;
