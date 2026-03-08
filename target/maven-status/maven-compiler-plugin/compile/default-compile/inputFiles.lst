@@ -1,9 +1,0 @@
-/Users/praveen.nooka/prsnl/rate-limitter-java/src/main/java/com/ratelimiter/algorithms/FixedWindowRateLimiter.java
-/Users/praveen.nooka/prsnl/rate-limitter-java/src/main/java/com/ratelimiter/algorithms/LeakyBucketRateLimiter.java
-/Users/praveen.nooka/prsnl/rate-limitter-java/src/main/java/com/ratelimiter/algorithms/RateLimitResult.java
-/Users/praveen.nooka/prsnl/rate-limitter-java/src/main/java/com/ratelimiter/algorithms/RateLimiter.java
-/Users/praveen.nooka/prsnl/rate-limitter-java/src/main/java/com/ratelimiter/algorithms/SlidingWindowCounterRateLimiter.java
-/Users/praveen.nooka/prsnl/rate-limitter-java/src/main/java/com/ratelimiter/algorithms/SlidingWindowLogRateLimiter.java
-/Users/praveen.nooka/prsnl/rate-limitter-java/src/main/java/com/ratelimiter/algorithms/TokenBucketRateLimiter.java
-/Users/praveen.nooka/prsnl/rate-limitter-java/src/main/java/com/ratelimiter/demo/RateLimiterDemo.java
-/Users/praveen.nooka/prsnl/rate-limitter-java/src/main/java/com/ratelimiter/utils/RateLimiterUtils.java
