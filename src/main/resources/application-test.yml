@@ -1,0 +1,59 @@
+# ─── Test Profile Configuration ───────────────────────────────────────────────
+#
+# WHY a separate test profile?
+# ==============================
+# Tests need an isolated environment that:
+#   1. Doesn't connect to real external services (Redis, DBs)
+#   2. Won't accidentally corrupt production/dev data
+#   3. Starts fast (no slow network calls)
+#
+# Spring Boot loads this file when: spring.profiles.active=test
+# It MERGES with application.yml — these values OVERRIDE the base config.
+#
+# @SpringBootTest tests automatically pick this up when you annotate
+# the test class with @ActiveProfiles("test").
+# ─────────────────────────────────────────────────────────────────────────────
+
+spring:
+  # Use a fresh isolated H2 database for each test run
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop      # Fresh schema for every test run
+    show-sql: false              # Reduce test output noise
+
+  # Disable Redis autoconfiguration for unit/integration tests that don't need it.
+  # WHY? Without this, Spring tries to connect to Redis on startup.
+  # If Redis isn't running, ALL tests fail with a connection error —
+  # even tests that have nothing to do with Redis!
+  #
+  # For Redis-specific tests, we use @Testcontainers which spins up a
+  # real Redis in Docker and overrides this setting programmatically.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+
+  # Use no-op cache (all @Cacheable calls just execute normally) in tests.
+  # WHY? Caching can hide bugs — a test might pass because it reads cached
+  # data from a previous test instead of computing fresh results.
+  cache:
+    type: none
+
+# Point to a different port in tests to avoid conflicts with running dev server
+server:
+  port: 0                        # 0 = pick a random available port
+  # Spring Test's MockMvc doesn't actually start Tomcat, so this doesn't
+  # matter for @WebMvcTest. For @SpringBootTest(webEnvironment=RANDOM_PORT)
+  # it picks a random free port, preventing port conflicts.
+
+rlaas:
+  default-backend: IN_MEMORY     # Always use in-memory backend in tests
+
+logging:
+  level:
+    com.ratelimiter: INFO        # Less verbose logging in tests

@@ -1,0 +1,154 @@
+# ╔══════════════════════════════════════════════════════════════╗
+# ║              RLaaS — Application Configuration               ║
+# ╚══════════════════════════════════════════════════════════════╝
+#
+# WHY application.yml instead of .properties?
+# ============================================
+# YAML (Yet Another Markup Language) uses indentation to represent
+# hierarchy — much cleaner than flat .properties files.
+#
+# .properties style:   spring.datasource.url=jdbc:h2:mem:rlaasdb
+# YAML style:          spring:
+#                        datasource:
+#                          url: jdbc:h2:mem:rlaasdb
+#
+# YAML is the industry standard for cloud-native apps (K8s, Docker Compose
+# also use YAML). You'll see this pattern everywhere.
+#
+# IMPORTANT: YAML is whitespace-sensitive — always use SPACES not TABS!
+#
+# Spring Profiles:
+# ================
+# You can have multiple configuration files:
+#   application.yml          → base config (always loaded)
+#   application-test.yml     → overrides when spring.profiles.active=test
+#   application-prod.yml     → overrides when spring.profiles.active=prod
+#
+# READ MORE: Spring Boot Externalized Configuration (12-factor app principle III)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# ─── Server Configuration ─────────────────────────────────────────────────────
+server:
+  port: 8080                     # Embedded Tomcat will listen on this port
+  # WHY embedded Tomcat? Traditional Java apps were deployed as WAR files to
+  # an external Tomcat server. Spring Boot bundles Tomcat inside the JAR —
+  # making it self-contained and cloud-friendly (just ship the JAR!).
+
+# ─── Spring Core ──────────────────────────────────────────────────────────────
+spring:
+
+  application:
+    name: rlaas                  # App name shown in logs, Actuator /info, and
+                                 # used as service name in distributed tracing
+
+  # ─── Database (H2 In-Memory) ──────────────────────────────────────────────
+  datasource:
+    # jdbc:h2:mem:<dbname> → fully in-memory: data lost on restart
+    # jdbc:h2:file:./data/<dbname> → file-based: persists across restarts
+    url: jdbc:h2:mem:rlaasdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    #     ↑ DB_CLOSE_DELAY=-1: keep DB alive as long as JVM runs
+    #     ↑ DB_CLOSE_ON_EXIT=FALSE: don't auto-close when last connection closes
+    driver-class-name: org.h2.Driver
+    username: sa                 # default H2 username
+    password:                    # H2 default has no password
+
+  # ─── H2 Web Console ───────────────────────────────────────────────────────
+  h2:
+    console:
+      enabled: true              # Access at http://localhost:8080/h2-console
+      path: /h2-console          # NEVER enable in production! Dev only.
+      # WHY useful? Browse your DB tables, run SQL queries live while the app runs.
+      # Great for debugging JPA / Hibernate generated SQL.
+
+  # ─── JPA / Hibernate ──────────────────────────────────────────────────────
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    # WHY dialect? Hibernate generates SQL. Different DBs have slightly
+    # different SQL syntax. The dialect tells Hibernate WHICH SQL flavor to use.
+    # Swap to PostgreSQLDialect and postgresql driver jar → works on Postgres!
+
+    hibernate:
+      ddl-auto: create-drop
+      # DDL = Data Definition Language (CREATE TABLE, DROP TABLE, etc.)
+      # Options:
+      #   none        → Hibernate does nothing (you manage schema)
+      #   validate    → Validates schema matches entity classes (fails if not)
+      #   update      → Adds columns but never drops them (risky in production)
+      #   create      → Creates schema on startup; drops on shutdown
+      #   create-drop → Creates on startup, drops on shutdown (dev/test only!)
+      # For PRODUCTION: use 'validate' with Flyway/Liquibase for migrations.
+      # READ MORE: Database migration tools (Flyway, Liquibase)
+
+    show-sql: true               # Logs every SQL query Hibernate runs — great for learning!
+    properties:
+      hibernate:
+        format_sql: true         # Pretty-print SQL instead of one long line
+
+  # ─── Redis Configuration ──────────────────────────────────────────────────
+  data:
+    redis:
+      host: localhost            # Redis server hostname
+      port: 6379                 # Default Redis port
+      # password:               # Uncomment if your Redis requires auth
+      timeout: 2000              # Connection timeout in milliseconds
+      lettuce:
+        pool:
+          max-active: 10         # Max concurrent connections in the pool
+          max-idle: 5            # Max idle connections kept alive
+          min-idle: 1            # Min idle connections (warm pool)
+          # WHY connection pooling?
+          # Creating a new TCP connection to Redis takes ~1ms.
+          # At 1000 req/s that's 1 second just in connection overhead.
+          # Pool reuses existing connections → near-zero overhead.
+          # Lettuce is async/reactive; Jedis is the older sync alternative.
+
+  # ─── Caching ──────────────────────────────────────────────────────────────
+  cache:
+    type: simple
+    # 'simple' uses ConcurrentHashMap (in-memory, single-node only).
+    # For distributed caching across multiple instances, switch to 'redis':
+    # type: redis
+    # Then @Cacheable results are shared across all app instances.
+    # READ MORE: Spring Cache abstraction, Cache-Aside pattern
+
+# ─── Actuator (Health, Metrics, Info) ─────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,env
+        # Only expose these endpoints. Avoid exposing 'shutdown' or '*' in prod!
+        # health → used by Kubernetes liveness/readiness probes
+        # metrics → JVM memory, HTTP request counts, custom metrics
+        # env → shows all config properties (careful: may expose secrets!)
+  endpoint:
+    health:
+      show-details: always       # Show component-level health (DB, Redis, etc.)
+
+# ─── Application-specific Settings ────────────────────────────────────────────
+rlaas:
+  # Default algorithm used when creating limiters (can be overridden per policy)
+  default-algorithm: FIXED_WINDOW
+
+  # Rate limiter backend mode:
+  #   IN_MEMORY → local ConcurrentHashMap (single-node, loses state on restart)
+  #   REDIS     → distributed Redis (survives restarts, works across instances)
+  default-backend: IN_MEMORY
+
+  # Cleanup scheduler: how often to evict expired in-memory state
+  cleanup:
+    interval-ms: 60000           # Run cleanup every 60 seconds
+
+# ─── Logging ──────────────────────────────────────────────────────────────────
+logging:
+  level:
+    # Set package-level log verbosity:
+    # TRACE < DEBUG < INFO < WARN < ERROR
+    com.ratelimiter: DEBUG       # Our code: show DEBUG and above
+    org.springframework.web: INFO
+    org.hibernate.SQL: DEBUG     # Show Hibernate SQL (combined with show-sql: true)
+    org.hibernate.type.descriptor.sql: TRACE  # Show SQL bind parameters
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    # %d → timestamp, %thread → thread name, %-5level → log level (padded)
+    # %logger{36} → class name truncated to 36 chars, %msg → the message

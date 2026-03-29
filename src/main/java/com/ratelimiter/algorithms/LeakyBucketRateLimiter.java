@@ -78,7 +78,7 @@ public class LeakyBucketRateLimiter implements RateLimiter{
             sb.append(String.format("Estimated Wait: %.0fms\n", copy.queueLevel/ leakRate * 1000));
             sb.append(String.format("Last Leaked: %d ms ago\n", now-bucket.lastLeakedAt));
         } else {
-            sb.append("No bucket found (Queue is empty)")
+            sb.append("No bucket found (Queue is empty)");
         }
         return sb.toString();
     }
@@ -99,7 +99,7 @@ public class LeakyBucketRateLimiter implements RateLimiter{
         long now = System.currentTimeMillis();
 
         buckets.entrySet().removeIf(entry -> 
-            now - entry.getValue().lastLeakedAt > maxAgeMs;
+            now - entry.getValue().lastLeakedAt > maxAgeMs
         );
     }
 }

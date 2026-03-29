@@ -1,83 +1,158 @@
 package com.ratelimiter.algorithms;
 
 /**
- * Result of a rate limit check operation.
- * 
- * This class contains all the information about whether a request
- * was allowed or rejected, and metadata for HTTP headers.
+ * RateLimitResult is a "Value Object" — an immutable object that carries data.
+ * It has no identity (we don't persist it), only values.
+ *
+ * WHY static factory methods (allowed/rejected) instead of constructors?
+ * Static factory method = controlled wrapper over constructor
+ * READ MORE: Effective Java Item 1 — "Consider static factory methods over
+ * constructors"
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * HTTP Headers Context:
+ * ─────────────────────────────────────────────────────────────────────────────
+ * This class is designed to map directly to standard rate-limit HTTP headers:
+ * X-RateLimit-Limit ← limit (maxRequests)
+ * X-RateLimit-Remaining ← remaining
+ * X-RateLimit-Reset ← resetAt (epoch seconds, per RFC standard)
+ * Retry-After ← retryAfterMs / 1000 (seconds)
  */
 public class RateLimitResult {
-    private final boolean isAllowed;
+
+    /** Was the request allowed through? */
+    private final boolean allowed;
+
+    /**
+     * Maximum requests permitted in the window (X-RateLimit-Limit).
+     * This is the POLICY limit, not a counter.
+     */
     private final int limit;
-    private final int remainingTokens;
-    private final long retryAfter;
-    private final long resetAt;
+
+    /**
+     * Remaining requests before hitting the limit (X-RateLimit-Remaining).
+     * For rejected requests, this is always 0.
+     */
+    private final int remaining;
+
+    /**
+     * Unix epoch milliseconds when the current window RESETS or fills up.
+     * (X-RateLimit-Reset — typically converted to epoch seconds in HTTP headers)
+     */
+    private final long resetAtMs;
+
+    /**
+     * How many ms the client should WAIT before retrying (Retry-After header).
+     * Only meaningful when allowed=false. For allowed results, this is 0.
+     */
+    private final long retryAfterMs;
+
+    /**
+     * Which algorithm produced this result (for observability/debugging).
+     * Included in API response headers so clients know what policy is active.
+     */
     private final String algorithmName;
 
-    public RateLimitResult(boolean isAllowed, int limit, int remainingTokens,
-                           long retryAfter, long resetAt, String algorithmName) {
-        this.isAllowed = isAllowed;
+    /**
+     * Human-readable message for API responses.
+     */
+    private final String message;
+
+    // Private constructor so callers MUST use the factory methods below.
+    private RateLimitResult(boolean allowed, int limit, int remaining,
+            long resetAtMs, long retryAfterMs,
+            String algorithmName, String message) {
+        this.allowed = allowed;
         this.limit = limit;
-        this.remainingTokens = remainingTokens;
-        this.retryAfter = retryAfter;
-        this.resetAt = resetAt;
+        this.remaining = remaining;
+        this.resetAtMs = resetAtMs;
+        this.retryAfterMs = retryAfterMs;
         this.algorithmName = algorithmName;
+        this.message = message;
     }
 
+    // ── Static Factory Methods ────────────────────────────────────────────────
+
+    /**
+     * Create a result for an ALLOWED request.
+     *
+     * @param limit         the policy max (e.g., 100 req/min)
+     * @param remaining     how many requests are left in the current window
+     * @param resetAtMs     when the window resets (epoch ms)
+     * @param algorithmName name of the algorithm that made the decision
+     * @return an immutable allowed result
+     */
+    public static RateLimitResult allowed(int limit, int remaining,
+            long resetAtMs, String algorithmName) {
+        return new RateLimitResult(
+                /* allowed */ true,
+                /* limit */ limit,
+                /* remaining */ remaining,
+                /* resetAtMs */ resetAtMs,
+                /* retryAfter */ 0L, // No retry needed — request was allowed
+                /* algorithm */ algorithmName,
+                /* message */ "Request allowed");
+    }
+
+    /**
+     * Create a result for a REJECTED request.
+     *
+     * @param limit         the policy max
+     * @param resetAtMs     when the window resets
+     * @param retryAfterMs  how many ms the client should wait before retrying
+     * @param algorithmName name of the algorithm
+     * @return an immutable rejected result
+     */
+    public static RateLimitResult rejected(int limit, long resetAtMs,
+            long retryAfterMs, String algorithmName) {
+        return new RateLimitResult(
+                /* allowed */ false,
+                /* limit */ limit,
+                /* remaining */ 0, // No remaining — that's WHY it was rejected
+                /* resetAtMs */ resetAtMs,
+                /* retryAfter */ retryAfterMs,
+                /* algorithm */ algorithmName,
+                /* message */ String.format(
+                        "Rate limit exceeded. Try again in %d ms", retryAfterMs));
+    }
+
+    // ── Getters ───────────────────────────────────────────────────────────────
+    // WHY manual getters instead of Lombok @Data here?
+    // This class is in the `algorithms` package (no Spring/Lombok dependency).
+    // Keeping it pure Java ensures it stays framework-agnostic.
+
     public boolean isAllowed() {
-        return isAllowed;
+        return allowed;
     }
 
     public int getLimit() {
         return limit;
     }
-    
-    public int getRemainingTokens() {
-        return remainingTokens;
+
+    public int getRemaining() {
+        return remaining;
     }
 
-    public long getRetryAfterMillis() {
-        return retryAfter;
+    public long getResetAtMs() {
+        return resetAtMs;
+    }
+
+    public long getRetryAfterMs() {
+        return retryAfterMs;
     }
 
     public String getAlgorithmName() {
         return algorithmName;
     }
 
-    /**
-     * Create a result for an allowed request
-     */
-    public static RateLimitResult allowed(int limit, int remainingTokens, long resetAt, String algorithmName) {
-        return new RateLimitResult(true, limit, remainingTokens, 0, resetAt, algorithmName);
+    public String getMessage() {
+        return message;
     }
 
-    /**
-     * Create a result for a rejected request
-     */
-    public static RateLimitResult rejected(int limit, long resetAt, long retryAfter, String algorithmName) {
-        return new RateLimitResult(false, limit, 0, retryAfter, 0, algorithmName);
-    }
-    
     @Override
     public String toString() {
-        if(isAllowed) {
-            return String.format("[%s] Allowed | Remaining Tokens: %d/%d | Reset in: %dms", algorithmName, remainingTokens, limit, resetAt);
-        } else {
-            return String.format("[%s] Rejected | Limit: %d | Retry after: %dms", algorithmName, limit, retryAfter);
-        }
-    }
-
-    /**
-     * Get HTTP-style headers for rate limiting
-     */
-    public String getHeaders() {
         return String.format(
-            "X-RateLimit-Limit: %d\n" +
-            "X-RateLimit-Remaining: %d\n" +
-            "X-RateLimit-Reset: %d\n" + 
-            (retryAfter > 0 ? "Retry-After: %.1f\n" : ""),
-            limit, remainingTokens, resetAt/1000,
-            retryAfter/1000.0
-        );
+                "RateLimitResult{allowed=%s, limit=%d, remaining=%d, resetAt=%d, retryAfter=%dms, algo=%s}",
+                allowed, limit, remaining, resetAtMs, retryAfterMs, algorithmName);
     }
 }

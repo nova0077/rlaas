@@ -1,60 +1,382 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    WHY pom.xml?
+    ============
+    POM = Project Object Model. It's Maven's heart — defines who your project is,
+    what it depends on, and how to build it. Think of it like package.json in Node.js.
+
+    WHY Spring Boot Parent?
+    =======================
+    By declaring spring-boot-starter-parent as our <parent>, we inherit:
+      - Default versions for hundreds of libraries (no version conflicts)
+      - Sensible Maven plugin configurations
+      - The spring-boot-maven-plugin pre-configured for fat JAR creation
+
+    This is called "Dependency Management via BOM (Bill of Materials)".
+    Without it, you'd have to manually pick matching versions of Spring libraries —
+    a classic source of "works on my machine" bugs.
+-->
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
-         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+         https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-    
+
+    <!--
+        SPRING BOOT PARENT
+        ==================
+        This single declaration gives us ALL of Spring Boot's curated dependency
+        versions. Spring Boot team has tested these versions together — so we
+        don't hit incompatibility bugs between Spring libraries.
+
+        Think of it as: "I trust the Spring team to pick good library versions for me."
+    -->
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.2.3</version>
+        <relativePath/> <!-- Tells Maven to fetch this from the remote repo, not locally -->
+    </parent>
+
     <groupId>com.ratelimiter</groupId>
-    <artifactId>rate-limiter-demo</artifactId>
+    <artifactId>rlaas</artifactId>
     <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>rate-limiter-demo</name>
-    <description>Implementation of various rate limiting algorithms</description>
-    <!-- <url>https://github.com/yourusername/rate-limiter-demo</url> -->
-    
+    <name>Rate Limiting as a Service (RLaaS)</name>
+    <description>
+        Distributed Rate Limiting Platform built with Spring Boot.
+        Supports multiple algorithms (Fixed Window, Sliding Window, Token Bucket,
+        Leaky Bucket) with both in-memory and Redis-backed distributed support.
+        Exposes rate limiting as a centralized HTTP service with dynamic policy management.
+    </description>
+
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <!-- Java 17 is the current LTS (Long Term Support) release.
+             Spring Boot 3.x REQUIRES Java 17 minimum.
+             Java 17 introduced: sealed classes, records, pattern matching, text blocks.
+             We'll use records for DTOs later — very clean for data-only classes. -->
+        <java.version>17</java.version>
+
+        <!-- Testcontainers: used to spin up real Docker containers (like Redis)
+             during tests. This means no manual Redis setup for integration tests! -->
+        <testcontainers.version>1.19.6</testcontainers.version>
     </properties>
 
     <dependencies>
-        <!-- For Logging -->
+
+        <!-- ═══════════════════════════════════════════════════════════
+             CORE WEB LAYER
+             ═══════════════════════════════════════════════════════════ -->
+
+        <!--
+            spring-boot-starter-web
+            =======================
+            This single dependency gives us:
+              - Embedded Tomcat (no separate server install needed!)
+              - Spring MVC (@RestController, @GetMapping, etc.)
+              - Jackson (JSON serialization/deserialization)
+              - HTTP message converters
+
+            WHY "starter"? Starters are curated dependency bundles.
+            Instead of adding 10 individual Spring libraries, one starter does it all.
+
+            WHAT IF NOT ADDED? Your app won't start as an HTTP server —
+            it would just run and exit immediately.
+        -->
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-            <version>2.0.9</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             REDIS — DISTRIBUTED RATE LIMITING
+             ═══════════════════════════════════════════════════════════ -->
+
+        <!--
+            spring-boot-starter-data-redis
+            ==============================
+            Gives us:
+              - RedisTemplate: general-purpose Redis operations (get/set/expire)
+              - Spring Data Redis repositories (optional, we won't use this)
+              - Lettuce client (the modern async Redis client, replaces Jedis)
+
+            WHY Redis for rate limiting?
+            In a distributed system, multiple app instances run simultaneously.
+            If Instance A and Instance B both serve "user123", they each have their
+            own in-memory counter — the limit is effectively doubled!
+            Redis is a shared, atomic store across all instances.
+
+            KEY CONCEPT — Atomic Operations:
+            Redis commands like INCR are ATOMIC — they read + increment in one
+            operation with no race condition. This is critical for correctness.
+
+            READ MORE: Redis data structures (Strings, Sorted Sets, Hashes),
+            Redis persistence, Redis Cluster vs Sentinel
+        -->
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-simple</artifactId>
-            <version>2.0.9</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             DATABASE — POLICY STORAGE
+             ═══════════════════════════════════════════════════════════ -->
+
+        <!--
+            spring-boot-starter-data-jpa
+            ============================
+            JPA = Java Persistence API — the standard way to talk to relational DBs in Java.
+            This starter includes:
+              - Hibernate (the most popular JPA implementation / ORM)
+              - Spring Data JPA (super convenient repository pattern)
+              - Connection pooling via HikariCP (fastest Java connection pool)
+
+            ORM (Object-Relational Mapping): Maps Java classes to database tables.
+            You write Java, Hibernate generates SQL.
+
+            WHY Store Policies in DB?
+            Rate limit policies (who gets how many requests) need to persist across
+            app restarts and be dynamically changeable via API without code deploys.
+
+            READ MORE: JPA vs JDBC, Hibernate N+1 problem, connection pooling
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+
+        <!--
+            H2 In-Memory Database
+            =====================
+            H2 is a pure-Java database that runs INSIDE your JVM.
+            scope=runtime: only needed at runtime, not compile time.
+
+            PROS: Zero setup, perfect for learning and testing.
+            CONS: Data is lost on restart (in-memory mode).
+
+            In production you'd swap this for PostgreSQL or MySQL by
+            simply changing the application.yml and adding the driver dependency —
+            JPA code remains 100% unchanged! That's the beauty of JPA abstraction.
+
+            READ MORE: H2 console (http://localhost:8080/h2-console), DB connection pools
+        -->
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             OBSERVABILITY
+             ═══════════════════════════════════════════════════════════ -->
+
+        <!--
+            spring-boot-starter-actuator
+            ============================
+            Actuator adds production-ready monitoring endpoints:
+              - /actuator/health  → is the app alive? (used by load balancers)
+              - /actuator/metrics → request counts, JVM memory, etc.
+              - /actuator/info    → app metadata
+
+            This mimics what real API gateways expose for health checking.
+            Kubernetes probes (liveness/readiness) use exactly /actuator/health.
+
+            READ MORE: Micrometer (the metrics library Actuator uses), Prometheus, Grafana
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             DEVELOPER PRODUCTIVITY
+             ═══════════════════════════════════════════════════════════ -->
+
+        <!--
+            Lombok
+            ======
+            Lombok is an annotation processor that generates boilerplate code
+            at compile time. You write:
+
+                @Data
+                public class Policy { private String name; }
+
+            Lombok generates: getters, setters, equals(), hashCode(), toString() — all invisible.
+
+            WHY? Java is famously verbose. Lombok cuts 50-80% of data class boilerplate.
+
+            IMPORTANT: Lombok works at COMPILE TIME via annotation processing —
+            it's not a runtime dependency. Your compiled bytecode has real methods.
+
+            @Data       = @Getter + @Setter + @ToString + @EqualsAndHashCode
+            @Builder    = Builder pattern (great for constructing complex objects)
+            @Slf4j      = injects a `log` variable (Logger) into the class
+
+            READ MORE: Annotation processors, Java bytecode, Project Lombok alternatives (Java Records)
+        -->
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional> <!-- Not included in final fat JAR -->
+        </dependency>
+
+        <!--
+            spring-boot-starter-validation
+            ================================
+            Bean Validation (JSR-380): Validate objects via annotations.
+
+            Examples:
+                @NotNull String userId;
+                @Min(1) @Max(10000) int maxRequests;
+                @Email String email;
+
+            When used with @Valid on a @RequestBody, Spring auto-validates
+            incoming JSON and returns 400 Bad Request with details if invalid.
+
+            Without this: you'd write if-null / range-check code manually everywhere.
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             TESTING
+             ═══════════════════════════════════════════════════════════ -->
+
+        <!--
+            spring-boot-starter-test
+            ========================
+            Everything you need for testing:
+              - JUnit 5 (the testing framework)
+              - Mockito (mocking: simulate dependencies without real implementations)
+              - AssertJ (fluent assertions: assertThat(result).isEqualTo(expected))
+              - MockMvc (test HTTP layer without starting a real server)
+              - Spring Test (load Spring context in tests)
+
+            scope=test: ONLY available in test code, not in production JAR.
+
+            READ MORE: Unit vs Integration vs E2E tests, the Testing Pyramid, TDD
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!--
+            Testcontainers (Core)
+            =====================
+            Testcontainers starts real Docker containers during tests.
+            For Redis integration tests: it spins up a real Redis container,
+            runs your tests against it, then tears it down automatically.
+
+            WHY? Mocking Redis is inaccurate — Lua scripts, atomic ops, TTLs
+            behave differently in a mock. Real containers give you real behavior.
+
+            PREREQUISITE: Docker must be running on your machine.
+        -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- The Redis-specific Testcontainers module -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>testcontainers</artifactId>
+            <scope>test</scope>
+        </dependency>
+
     </dependencies>
+
+    <!--
+        Dependency Management
+        ====================
+        We import the Testcontainers BOM (Bill of Materials) so all
+        testcontainers modules use the same compatible version.
+        This is the same pattern as Spring Boot's parent BOM.
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>testcontainers-bom</artifactId>
+                <version>${testcontainers.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
         <plugins>
+            <!--
+                spring-boot-maven-plugin
+                ========================
+                This plugin creates an "uber JAR" (aka fat JAR / executable JAR):
+                a single self-contained file with ALL dependencies bundled in.
+
+                Run with: java -jar target/rlaas-1.0.0.jar
+
+                It also enables: mvn spring-boot:run (run without packaging first)
+
+                configuration > excludes > lombok:
+                Lombok is only needed at compile time (annotation processing).
+                We exclude it from the final JAR to keep it smaller.
+            -->
+            <!--
+                maven-compiler-plugin
+                =====================
+                WHY configure this explicitly?
+                Lombok is an annotation processor — it runs BEFORE the compiler
+                and generates bytecode for @Data, @Slf4j, @Builder, etc.
+
+                Newer versions of maven-compiler-plugin (3.5+) no longer
+                automatically pick up annotation processors from the compile
+                classpath. They must be declared in <annotationProcessorPaths>.
+
+                Without this, javac compiles your code WITHOUT running Lombok,
+                so methods like getName(), log, builder() simply don't exist
+                → "cannot find symbol" errors everywhere.
+
+                NOTE: No <version> needed here — Spring Boot parent BOM manages it.
+            -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-jar-plugin</artifactId>
-                <version>3.3.0</version>
+                <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <archive>
-                        <manifest>
-                            <mainClass>com.ratelimiter.demo.RateLimiterDemo</mainClass>
-                        </manifest>
-                    </archive>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <!--
+                                WHY explicit version here?
+                                annotationProcessorPaths does NOT inherit versions from
+                                the Spring Boot BOM — it's a separate resolution context.
+                                ${lombok.version} is provided by spring-boot-starter-parent.
+                            -->
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
                 </configuration>
             </plugin>
+
             <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>3.1.0</version>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <mainClass>com.ratelimiter.demo.RateLimiterDemo</mainClass>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+
 </project>
